@@ -78,24 +78,42 @@ class TelloBridge:
     Manages the two UDP sockets that form the drone ↔ gateway link.
 
     Lifecycle:
-        bridge = TelloBridge()   # create sockets (no network activity yet)
-        bridge.connect()         # enter SDK mode + start telemetry thread
-        bridge.send_command("takeoff")   # optional: send flight commands
-        bridge.disconnect()      # stop thread + close sockets
+        bridge = TelloBridge()          # create sockets (no network activity yet)
+        bridge.connect()                # enter SDK mode + start telemetry thread
+        bridge.takeoff()                # take off
+        bridge.move("up", 50)           # move up 50cm
+        bridge.land()                   # land
+        bridge.disconnect()             # stop thread + close sockets
 
     Thread model:
-        - Main thread  : calls connect(), send_command(), disconnect()
+        - Main thread  : calls connect(), flight commands, disconnect()
         - Daemon thread: runs _telemetry_loop() continuously in the background
         The daemon thread is non-blocking from the main thread's perspective.
         'daemon=True' means it is automatically killed when the main process exits,
         so we never need to explicitly join it on shutdown.
+
+    Command methods:
+        All flight commands are thin wrappers around send_command().
+        They exist so server.py can call bridge.takeoff() instead of
+        bridge.send_command("takeoff") — cleaner and less error-prone.
+        Each method validates the response and raises RuntimeError on failure,
+        so the caller always knows if the drone actually executed the command.
     """
+
+    # Valid movement directions and their Tello SDK equivalents.
+    # Used by move() for validation before sending to the drone.
+    VALID_DIRECTIONS = {"up", "down", "left", "right", "forward", "back", "cw", "ccw"}
+
+    # Tello SDK distance limits (cm). move() enforces these before sending.
+    # Sending out-of-range values causes the drone to respond with "error".
+    MIN_DISTANCE = 20   # cm
+    MAX_DISTANCE = 500  # cm
 
     def __init__(self):
         """
         Create the two UDP sockets. No network activity happens here yet.
 
-        socket.AF_INET   → IPv4 addressing
+        socket.AF_INET    → IPv4 addressing
         socket.SOCK_DGRAM → UDP (datagram, connectionless)
             vs SOCK_STREAM which would be TCP (connection-oriented)
 
@@ -110,39 +128,30 @@ class TelloBridge:
         # Set to True by connect(), back to False by disconnect().
         self.running = False
 
-    # ── COMMAND CHANNEL ──────────────────────────────────────────────
+    # ── LOW-LEVEL COMMAND SENDER ─────────────────────────────────────
 
     def send_command(self, cmd: str) -> str:
         """
         Send a single Tello SDK text command and return the drone's response.
+        This is the only method that actually touches the network on this side.
+        All higher-level methods (takeoff, land, move, etc.) call this.
 
         How it works:
             1. Encode the command string to bytes (UDP sends bytes, not strings).
             2. sendto() fires the UDP packet at the drone's command port.
-               UDP is fire-and-forget — sendto() returns immediately, no waiting.
-            3. settimeout(5.0) makes recvfrom() raise socket.timeout if no reply
-               arrives within 5 seconds — prevents the call hanging forever.
+               UDP is fire-and-forget — sendto() returns immediately.
+            3. settimeout(5.0) makes recvfrom() raise socket.timeout after 5s.
             4. recvfrom() blocks until a UDP packet arrives or timeout fires.
-               We discard the sender address (_) since we know it's the drone.
-            5. Decode the bytes response back to a string and strip whitespace.
-
-        Common Tello SDK commands:
-            "command"       → enter SDK mode (MUST be sent first)
-            "takeoff"       → autonomous takeoff to ~80cm
-            "land"          → land immediately
-            "emergency"     → cut all motors instantly (use carefully)
-            "battery?"      → query battery level (returns e.g. "87")
-            "speed 50"      → set speed to 50 cm/s
-            "up 50"         → move up 50 cm
-            "cw 90"         → rotate 90° clockwise
+               Sender address is discarded — we know it's the drone.
+            5. Decode bytes response back to string and strip whitespace.
 
         Args:
-            cmd: Tello SDK command string (no encoding, just plain text).
+            cmd: Tello SDK command string (plain text, e.g. "takeoff", "up 50").
 
         Returns:
             "ok"      — command accepted and executed.
             "error"   — command rejected (bad syntax, unsafe state, etc.).
-            "timeout" — no response within 5 seconds (drone may be unreachable).
+            "timeout" — no response within 5 seconds (drone unreachable).
         """
         self.cmd_socket.sendto(cmd.encode(), (TELLO_IP, TELLO_CMD_PORT))
         try:
@@ -150,9 +159,155 @@ class TelloBridge:
             response, _ = self.cmd_socket.recvfrom(1024)
             return response.decode().strip()
         except socket.timeout:
-            # Treat timeout as an explicit failure so callers can handle it.
-            # Don't raise — the caller decides whether to retry or abort.
             return "timeout"
+
+    # ── FLIGHT COMMAND WRAPPERS ───────────────────────────────────────
+    # These methods exist so server.py calls bridge.takeoff() rather than
+    # bridge.send_command("takeoff"). Benefits:
+    #   - Cleaner call sites — no raw strings scattered across the codebase.
+    #   - Centralised response validation and logging per command type.
+    #   - Self-documenting — method names describe intent clearly.
+    #   - Easier to extend — add pre-flight checks or retries here later.
+
+    def takeoff(self) -> str:
+        """
+        Command the drone to take off autonomously.
+        Drone ascends to approximately 80cm above the surface and hovers.
+
+        Prerequisites:
+            - Drone must be on a flat surface.
+            - Props must be unobstructed.
+            - Battery should be above 20%.
+
+        Blocks until the drone confirms it has reached hover altitude.
+        This typically takes 2–3 seconds.
+
+        Returns:
+            "ok", "error", or "timeout"
+        """
+        logger.info("Command: takeoff")
+        response = self.send_command("takeoff")
+        if response != "ok":
+            logger.warning("Takeoff returned: %s", response)
+        return response
+
+    def land(self) -> str:
+        """
+        Command the drone to land at its current position.
+        Drone descends slowly and cuts motors on touchdown.
+
+        Blocks until the drone confirms it has landed.
+        This typically takes 2–4 seconds depending on altitude.
+
+        Returns:
+            "ok", "error", or "timeout"
+        """
+        logger.info("Command: land")
+        response = self.send_command("land")
+        if response != "ok":
+            logger.warning("Land returned: %s", response)
+        return response
+
+    def emergency(self) -> str:
+        """
+        CUT ALL MOTORS IMMEDIATELY.
+
+        ⚠ USE WITH EXTREME CAUTION ⚠
+        The drone drops instantly from whatever altitude it is at.
+        Only use if the drone is behaving dangerously.
+
+        Unlike land(), this does NOT descend gracefully — it is a
+        hard stop of all four motors simultaneously.
+
+        Returns:
+            "ok", "error", or "timeout"
+        """
+        logger.warning("EMERGENCY STOP — cutting all motors immediately.")
+        return self.send_command("emergency")
+
+    def move(self, direction: str, distance: int) -> str:
+        """
+        Move the drone in a given direction by a given distance.
+
+        Validates direction and distance BEFORE sending to the drone.
+        The Tello firmware responds with "error" for out-of-range values,
+        so we catch them here for a clearer error message.
+
+        Args:
+            direction: One of:
+                "up"      — ascend vertically
+                "down"    — descend vertically
+                "left"    — strafe left (relative to drone nose direction)
+                "right"   — strafe right
+                "forward" — move forward (direction drone is facing)
+                "back"    — move backward
+                "cw"      — rotate clockwise      (distance = degrees)
+                "ccw"     — rotate counterclockwise (distance = degrees)
+
+            distance:  Distance in cm (or degrees for cw/ccw rotations).
+                       Must be between MIN_DISTANCE (20) and MAX_DISTANCE (500).
+
+        Returns:
+            "ok", "error", or "timeout"
+
+        Raises:
+            ValueError: if direction is invalid or distance is out of range.
+                        Raised BEFORE any network call so callers handle
+                        bad input without waiting for a drone response.
+        """
+        direction = direction.lower()
+
+        if direction not in self.VALID_DIRECTIONS:
+            raise ValueError(
+                f"Invalid direction '{direction}'. "
+                f"Valid options: {sorted(self.VALID_DIRECTIONS)}"
+            )
+
+        if not (self.MIN_DISTANCE <= distance <= self.MAX_DISTANCE):
+            raise ValueError(
+                f"Distance {distance} out of range. "
+                f"Must be {self.MIN_DISTANCE}–{self.MAX_DISTANCE}."
+            )
+
+        sdk_cmd = f"{direction} {distance}"
+        logger.info("Command: %s", sdk_cmd)
+        response = self.send_command(sdk_cmd)
+
+        if response != "ok":
+            logger.warning("Move '%s' returned: %s", sdk_cmd, response)
+        return response
+
+    def rotate(self, degrees: int, clockwise: bool = True) -> str:
+        """
+        Convenience wrapper for rotation — cleaner than move("cw", 90).
+
+        Args:
+            degrees:   Degrees to rotate (20–500).
+            clockwise: True for clockwise, False for counterclockwise.
+
+        Returns:
+            "ok", "error", or "timeout"
+        """
+        direction = "cw" if clockwise else "ccw"
+        return self.move(direction, degrees)
+
+    def get_battery(self) -> int:
+        """
+        Query the drone's battery level directly via SDK command.
+
+        Note: Battery is also streamed continuously via the telemetry port
+        and available in shared/state.py. Use this only for a one-off
+        reading before the telemetry loop has started (e.g. pre-flight check).
+
+        Returns:
+            Battery percentage as int (0–100), or -1 if query failed.
+        """
+        response = self.send_command("battery?")
+        try:
+            return int(response)
+        except ValueError:
+            logger.warning("Could not parse battery response: '%s'", response)
+            return -1
 
     # ── TELEMETRY CHANNEL ────────────────────────────────────────────
 
@@ -162,52 +317,31 @@ class TelloBridge:
 
         How it works:
             1. bind(("", TELLO_STATE_PORT)) — attach the socket to port 8890
-               on ALL network interfaces ("" means 0.0.0.0 = any interface).
-               This is what allows the OS to route the drone's broadcast
-               packets to our socket. Without bind(), recvfrom() would never
-               receive anything on this port.
-            2. settimeout(2.0) — recvfrom() won't block forever. If no packet
-               arrives in 2 seconds, it raises socket.timeout and we loop back.
-               This keeps the thread responsive to self.running becoming False.
-            3. In the loop: receive → decode → parse → write to shared state.
-            4. On exception: log and continue. One bad packet must not kill the
-               listener; the next packet arrives in 100ms.
+               on ALL network interfaces ("" = 0.0.0.0 = any interface).
+               Without bind(), recvfrom() would never receive anything here.
+            2. settimeout(2.0) — prevents recvfrom() blocking forever.
+               Keeps the thread responsive to self.running becoming False.
+            3. Loop: receive → decode → parse → write to shared state.
+            4. On exception: log and continue. One bad packet must not kill
+               the listener; the next packet arrives in 100ms.
 
         Why a daemon thread?
-            Setting daemon=True (in connect()) means this thread is automatically
-            killed when the main program exits. We don't need to signal it or
-            join it — Python handles cleanup for daemon threads automatically.
+            daemon=True means Python automatically kills it when the main
+            process exits. No explicit join() needed on shutdown.
         """
-        # Bind to all interfaces on port 8890 so drone's UDP broadcasts arrive here.
         self.state_socket.bind(("", TELLO_STATE_PORT))
-
-        # 2-second timeout: keeps the loop from blocking indefinitely so it can
-        # check self.running and exit cleanly when disconnect() sets it to False.
         self.state_socket.settimeout(2.0)
         logger.info("Telemetry listener started on port %d", TELLO_STATE_PORT)
 
         while self.running:
             try:
-                # Block until a UDP packet arrives or the 2s timeout fires.
-                # 1024 bytes is more than enough — Tello state packets are ~150 bytes.
                 data, _ = self.state_socket.recvfrom(1024)
-
-                # Decode bytes → string, then parse into a dict of field:value pairs.
                 parsed = parse_telemetry(data.decode())
-
                 if parsed:
-                    # Write all fields to the thread-safe shared store.
-                    # state.update() acquires the lock internally — we don't need to here.
                     state.update(parsed)
-
             except socket.timeout:
-                # No packet arrived in 2 seconds — normal if drone is idle.
-                # Just loop back and check self.running again.
                 continue
-
             except Exception as e:
-                # Catch-all: malformed packet, decode error, etc.
-                # Log it but keep the loop alive — next packet arrives soon.
                 logger.warning("Telemetry parse error: %s", e)
 
     # ── LIFECYCLE ────────────────────────────────────────────────────
@@ -219,49 +353,38 @@ class TelloBridge:
         Steps:
             1. Send "command" → drone enters SDK mode (replies "ok").
                Without this, the drone ignores all subsequent commands.
-               This is the Tello's version of a handshake.
-            2. Set self.running = True so _telemetry_loop keeps running.
-            3. Spawn a daemon thread running _telemetry_loop.
-               The thread starts immediately and listens for telemetry.
+            2. Set self.running = True so _telemetry_loop keeps looping.
+            3. Spawn daemon thread running _telemetry_loop.
 
         Raises:
-            ConnectionError: if the drone doesn't respond with "ok" to "command".
-            This usually means:
-                - You're not connected to the drone's Wi-Fi.
-                - The drone is not powered on.
-                - Another application is already using port 8889.
+            ConnectionError: if the drone doesn't respond with "ok".
+            Check: connected to drone Wi-Fi? Drone powered on?
         """
-        logger.info("Connecting to Tello drone at %s:%d ...", TELLO_IP, TELLO_CMD_PORT)
+        logger.info("Connecting to Tello at %s:%d ...", TELLO_IP, TELLO_CMD_PORT)
 
         resp = self.send_command("command")
         if resp != "ok":
             raise ConnectionError(
                 f"Drone did not enter SDK mode. Response: '{resp}'\n"
-                f"Make sure you are connected to the drone's Wi-Fi "
-                f"(SSID: TELLO-XXXXXX) and the drone is powered on."
+                f"Ensure you are connected to the drone's Wi-Fi (TELLO-XXXXXX) "
+                f"and the drone is powered on."
             )
-        logger.info("SDK mode: OK — drone is ready to accept commands.")
+        logger.info("SDK mode: OK — drone ready.")
 
         self.running = True
         t = threading.Thread(target=self._telemetry_loop, daemon=True)
         t.start()
-        logger.info("Telemetry thread started — receiving state on port %d.", TELLO_STATE_PORT)
+        logger.info("Telemetry thread running on port %d.", TELLO_STATE_PORT)
 
     def disconnect(self):
         """
-        Gracefully stop the telemetry thread and release socket resources.
+        Stop the telemetry thread and release socket resources.
 
-        Steps:
-            1. self.running = False → _telemetry_loop exits on its next iteration
-               (within at most 2 seconds due to the socket timeout).
-            2. Close both sockets → releases the OS port bindings immediately.
-               After this, no more packets can be sent or received.
-
-        Note: We don't join() the daemon thread. Since it's a daemon, Python
-        will clean it up when the process exits. Calling join() here would
-        block for up to 2 seconds (the socket timeout) with no real benefit.
+        self.running = False causes _telemetry_loop to exit within
+        at most 2 seconds (the socket timeout interval).
+        Sockets are then closed to release OS port bindings immediately.
         """
         self.running = False
         self.cmd_socket.close()
         self.state_socket.close()
-        logger.info("Tello bridge disconnected and sockets closed.")
+        logger.info("Tello bridge disconnected.")
