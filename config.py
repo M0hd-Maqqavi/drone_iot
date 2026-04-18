@@ -5,7 +5,7 @@ TELLO_STATE_PORT = 8890     # drone broadcasts telemetry TO us on this port
 TELLO_VIDEO_PORT = 11111    # not used in this project
 
 # --- CoAP Server ---
-COAP_HOST = "127.0.0.1"    # localhost — server and client run on same machine
+COAP_HOST = "127.0.0.1"     # localhost — server and client run on same machine
 COAP_PORT = 5683            # standard CoAP port (like HTTP's 80)
 
 # --- Auth ---
