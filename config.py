@@ -19,14 +19,20 @@ COAP_PORT = 5683            # standard CoAP port (like HTTP's 80)
 # In a real deployment this would be provisioned into hardware before deployment
 
 # Copy the .env.example file to .env and fill in your own values for the secret and device ID
+_secret = os.getenv("PRESHARED_SECRET")
+if not _secret:
+    raise EnvironmentError("PRESHARED_SECRET not set. Copy .env.example to .env and fill in your values.")
+
+_device_id = os.getenv("DEVICE_ID")
+if not _device_id:
+    raise EnvironmentError("DEVICE_ID not set. Copy .env.example to .env and fill in your values.")
 
 # For security, we read the pre-shared secret from an environment variable, with a default fallback
 # The .env file should contain a line like:
 # PRESHARED_SECRET=<your-16-byte-secret-here>
 # DEVICE_ID=<your-device-id-here>
-_secret = os.getenv("PRESHARED_SECRET")
 PRESHARED_SECRET = _secret.encode()   # convert to bytes for AES
-DEVICE_ID = os.getenv("DEVICE_ID")
+DEVICE_ID = _device_id
 MAX_AUTH_FAILURES = 4
 
 # --- Dashboard ---
