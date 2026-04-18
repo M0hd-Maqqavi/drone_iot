@@ -9,9 +9,13 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+DRONE-IOT/
 
 # Python package metadata
 *.egg-info/
 
 # macOS system files
 .DS_Store
+
+# Visual Studio Code settings
+.vscode/
