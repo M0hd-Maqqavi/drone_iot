@@ -64,6 +64,7 @@ def update(parsed: dict):
         telemetry.battery_history.append(telemetry.battery)
         telemetry.height_history.append(telemetry.height)
         telemetry.temp_history.append(telemetry.temph)
+        
         # Magnitude of acceleration vector
         import math
         accel_mag = math.sqrt(telemetry.agx**2 + telemetry.agy**2 + telemetry.agz**2)
