@@ -83,6 +83,7 @@ class ClientState:
         self.agz         = 0.0
         self.connected   = False
         self.alerts      = []   # list of alert strings shown on dashboard
+        self.tilt_alert = False
 
         # Rolling histories for dashboard charts (last 100 samples)
         self.battery_history     = deque(maxlen=100)
@@ -122,15 +123,13 @@ class ClientState:
             self.pitch = data.get("pitch", self.pitch)
             self.roll  = data.get("roll",  self.roll)
             self.yaw   = data.get("yaw",   self.yaw)
+            self.tilt_alert = data.get("tilt_alert", False)
             
-            if data.get("tilt_alert"):
-                alert_msg = f"⚠ DRONE NOT LEVEL — P:{self.pitch:+.1f}° R:{self.roll:+.1f}° — Place on flat surface before takeoff"
-                # Replace any existing tilt alert rather than stacking duplicates
+            if self.tilt_alert:
+                msg = f"⚠ DRONE NOT LEVEL — P:{self.pitch:+.1f}° R:{self.roll:+.1f}°"
                 self.alerts = [a for a in self.alerts if "NOT LEVEL" not in a]
-                self.alerts.append(alert_msg)
-                logger.warning(alert_msg)
+                self.alerts.append(msg)
             else:
-                # Clear tilt alert when drone is level again
                 self.alerts = [a for a in self.alerts if "NOT LEVEL" not in a]
 
     def update_velocity(self, data: dict):

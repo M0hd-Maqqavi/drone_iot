@@ -44,7 +44,6 @@ import os
 from flask import Flask, Response, render_template, request, jsonify
 
 from config import WEB_PORT, MJPEG_HOST, MJPEG_PORT
-from coap.client import client_state
 
 logger = logging.getLogger(__name__)
 
@@ -99,6 +98,8 @@ def telemetry_stream():
     EventSource in the browser fires onmessage for each complete event.
     """
     def generate():
+        # Import inside the generator — runs AFTER CoAP client is ready
+        from coap.client import client_state
         while True:
             snap = client_state.snapshot()
 
