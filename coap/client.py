@@ -38,7 +38,6 @@ import threading
 from collections import deque
 
 import aiocoap
-import aiocoap.resource as resource
 
 from auth.handshake import AuthClient
 from config import COAP_HOST, COAP_PORT, DEVICE_ID

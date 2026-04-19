@@ -541,7 +541,7 @@ class CommandResource(resource.Resource):
         # We run it in a thread pool executor so it doesn't block the
         # asyncio event loop — other coroutines can run while we wait
         # for the drone's "ok" response.
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(
             None,  # default thread pool
             self.bridge.send_command,
@@ -640,7 +640,7 @@ class MoveResource(resource.Resource):
 
         # Build and send SDK command.
         sdk_cmd = f"{direction} {distance}"
-        loop = asyncio.get_event_loop()
+        loop = asyncio.get_running_loop()
         response = await loop.run_in_executor(None, self.bridge.send_command, sdk_cmd)
 
         logger.info("Move command '%s' → drone response: '%s'", sdk_cmd, response)
@@ -724,7 +724,7 @@ async def create_server(bridge):
     # ── Start Observe notification tasks ─────────────────────────────
     # Each observable resource needs a background task that periodically
     # calls updated_state() to push new values to subscribed clients.
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     for res in [battery_res, height_res, temperature_res,
                 orientation_res, velocity_res, acceleration_res, tof_res]:
         res.start_notify_task(loop)

@@ -12,7 +12,6 @@ Terminology:
 
 import os
 import json
-import hashlib
 import logging
 from Crypto.Cipher import AES
 from Crypto.Util.Padding import pad, unpad
