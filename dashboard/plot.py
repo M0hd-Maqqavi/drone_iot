@@ -62,6 +62,7 @@ _command_queue = queue.Queue()
 # Emergency requires TWO consecutive presses as a safety guard —
 # accidental single keypress won't cut the motors.
 _emergency_primed = False
+_quit_primed = False
 
 
 def _on_key_press(event, client, loop):
@@ -78,74 +79,117 @@ def _on_key_press(event, client, loop):
         client: DroneCoAPClient instance (from coap/client.py)
         loop:   asyncio event loop running on the background thread
     """
-    global _emergency_primed
+    global _emergency_primed, _quit_primed
     key = event.key.lower() if event.key else ""
 
+    # ── Takeoff ───────────────────────────────────────────────────────
     if key == "t":
-        # Takeoff
         logger.info("Key: T → takeoff")
         asyncio.run_coroutine_threadsafe(client.takeoff(), loop)
         _command_queue.put("takeoff")
         _emergency_primed = False
+        _quit_primed = False
 
+    # ── Land ─────────────────────────────────────────────────────────
     elif key == "l":
-        # Land
         logger.info("Key: L → land")
         asyncio.run_coroutine_threadsafe(client.land(), loop)
         _command_queue.put("land")
         _emergency_primed = False
+        _quit_primed = False
 
-    elif key == "u":
-        # Move up 30cm
-        logger.info("Key: U → up 30")
-        asyncio.run_coroutine_threadsafe(client.move("up", 30), loop)
-        _command_queue.put("up 30cm")
-        _emergency_primed = False
-
-    elif key == "d":
-        # Move down 30cm
-        logger.info("Key: D → down 30")
-        asyncio.run_coroutine_threadsafe(client.move("down", 30), loop)
-        _command_queue.put("down 30cm")
-        _emergency_primed = False
-
-    elif key == "f":
-        # Move forward 50cm
-        logger.info("Key: F → forward 50")
+    # ── Movement (arrow keys) ─────────────────────────────────────────
+    elif key == "up":
+        logger.info("Key: ↑ → forward 50")
         asyncio.run_coroutine_threadsafe(client.move("forward", 50), loop)
         _command_queue.put("forward 50cm")
         _emergency_primed = False
+        _quit_primed = False
 
-    elif key == "b":
-        # Move backward 50cm
-        logger.info("Key: B → back 50")
+    elif key == "down":
+        logger.info("Key: ↓ → back 50")
         asyncio.run_coroutine_threadsafe(client.move("back", 50), loop)
         _command_queue.put("back 50cm")
         _emergency_primed = False
+        _quit_primed = False
 
-    elif key == "r":
-        # Rotate clockwise 90 degrees
-        logger.info("Key: R → cw 90")
-        asyncio.run_coroutine_threadsafe(client.move("cw", 90), loop)
-        _command_queue.put("rotate CW 90°")
+    elif key == "left":
+        logger.info("Key: ← → left 50")
+        asyncio.run_coroutine_threadsafe(client.move("left", 50), loop)
+        _command_queue.put("left 50cm")
         _emergency_primed = False
+        _quit_primed = False
 
+    elif key == "right":
+        logger.info("Key: → → right 50")
+        asyncio.run_coroutine_threadsafe(client.move("right", 50), loop)
+        _command_queue.put("right 50cm")
+        _emergency_primed = False
+        _quit_primed = False
+
+    # ── Altitude (W/S) ────────────────────────────────────────────────
+    elif key == "w":
+        logger.info("Key: W → up 30")
+        asyncio.run_coroutine_threadsafe(client.move("up", 30), loop)
+        _command_queue.put("up 30cm")
+        _emergency_primed = False
+        _quit_primed = False
+
+    elif key == "s":
+        logger.info("Key: S → down 30")
+        asyncio.run_coroutine_threadsafe(client.move("down", 30), loop)
+        _command_queue.put("down 30cm")
+        _emergency_primed = False
+        _quit_primed = False
+
+    # ── Rotation (A/D) ────────────────────────────────────────────────
+    elif key == "a":
+        logger.info("Key: A → ccw 20")
+        asyncio.run_coroutine_threadsafe(client.move("ccw", 20), loop)
+        _command_queue.put("rotate CCW 20°")
+        _emergency_primed = False
+        _quit_primed = False
+
+    elif key == "d":
+        logger.info("Key: D → cw 20")
+        asyncio.run_coroutine_threadsafe(client.move("cw", 20), loop)
+        _command_queue.put("rotate CW 20°")
+        _emergency_primed = False
+        _quit_primed = False
+
+    # ── Emergency (double E) ──────────────────────────────────────────
     elif key == "e":
-        # Emergency stop — requires two consecutive E presses
         if _emergency_primed:
             logger.warning("Key: E+E → EMERGENCY STOP")
             asyncio.run_coroutine_threadsafe(client.emergency(), loop)
             _command_queue.put("⚠ EMERGENCY STOP")
             _emergency_primed = False
         else:
-            # First press — prime the emergency
             _emergency_primed = True
-            _command_queue.put("Press E again to confirm EMERGENCY")
-            logger.info("Key: E → emergency primed (press E again to confirm)")
+            _command_queue.put("⚠ Press E again to confirm EMERGENCY")
+            logger.info("Key: E → emergency primed")
+        _quit_primed = False
+
+    # ── Quit (double Q) ───────────────────────────────────────────────
+    elif key == "q":
+        if _quit_primed:
+            logger.info("Key: Q+Q → quit")
+            asyncio.run_coroutine_threadsafe(client.land(), loop)
+            _command_queue.put("landing then quitting...")
+            _quit_primed = False
+            # Small delay so land command fires before closing
+            import threading
+            threading.Timer(3.0, plt.close, args=["all"]).start()
+        else:
+            _quit_primed = True
+            _command_queue.put("Press Q again to quit")
+            logger.info("Key: Q → quit primed")
+        _emergency_primed = False
 
     else:
-        # Any other key cancels emergency priming
+        # Any unrecognised key cancels both primed states
         _emergency_primed = False
+        _quit_primed = False
 
 
 # ─────────────────────────────────────────────
@@ -245,7 +289,8 @@ class Dashboard:
         # Key hint bar — static text, drawn once
         self.ax_status.text(
             0.5, 0.1,
-            "[T]akeoff  [L]and  [U]p  [D]own  [F]wd  [B]ack  [R]otate CW  [E][E] Emergency",
+            "  [T]akeoff  [L]and  [W]up  [S]down  [A]ccw  [D]cw  "
+            "[↑]fwd  [↓]back  [←]left  [→]right  [E][E]Emergency  [Q][Q]Quit  ",
             transform=self.ax_status.transAxes,
             ha="center", va="center",
             fontsize=7.5, color="#7f8c8d"
