@@ -288,32 +288,32 @@ class TelemetryResource(resource.ObservableResource):
 
     async def render_get(self, request):
         """
-        Called by aiocoap both for initial GET and for each Observe notification.
+        Called by aiocoap for both the initial GET and server-pushed Observe
+        notifications.
 
-        For the INITIAL GET: request comes from client with URI query params.
-        For OBSERVE NOTIFICATIONS: aiocoap calls this internally with no URI
-        query — so we cannot check auth here for notifications.
-
-        Solution: store the device_id at first subscription, skip auth check
-        for subsequent notification renders (they come from the same verified client).
+        Initial GET: arrives from client WITH device_id in URI query.
+                     We authenticate here and store device_id.
+        Observe notification: aiocoap calls this INTERNALLY with no URI query.
+                     We skip the auth check — client already authenticated
+                     during the initial GET that registered the subscription.
         """
-        # Try to extract device_id from URI query (only present on initial GET)
+        # Extract device_id from URI query (only present on initial GET,
+        # not on server-pushed Observe notifications)
         device_id = None
         for opt in request.opt.uri_query:
             if opt.startswith("device_id="):
                 device_id = opt.split("=", 1)[1]
 
-        # If device_id present → this is an initial GET → check auth
-        # If device_id absent → this is a server-pushed notification → skip auth check
-        # (aiocoap only calls render_get for notifications it already accepted)
         if device_id is not None:
+            # Initial GET — check auth and store device_id
             if not require_auth(device_id):
                 return aiocoap.Message(
                     code=aiocoap.UNAUTHORIZED,
                     payload=b'{"error":"not authenticated"}'
                 )
-            # Store device_id for logging purposes
+            # Remember who subscribed (for logging)
             self._last_device_id = device_id
+        # If device_id is None → server-pushed notification → skip auth check
 
         data    = self._get_value()
         payload = json.dumps(data).encode()
