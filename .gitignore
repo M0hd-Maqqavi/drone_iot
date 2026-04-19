@@ -19,3 +19,6 @@ DRONE-IOT/
 
 # Visual Studio Code settings
 .vscode/
+
+# Logs of Flight operations
+flight_log.txt
