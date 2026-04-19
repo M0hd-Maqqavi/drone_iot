@@ -1,0 +1,728 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Drone IoT Monitor</title>
+
+    <!-- Chart.js loaded from CDN — no installation needed -->
+    <!-- This is the only external dependency. It runs in the browser. -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+
+    <style>
+        /* ── Reset & Base ─────────────────────────────────────────── */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        :root {
+            --bg-dark: #0d1117;
+            --bg-panel: #161b22;
+            --bg-card: #1c2128;
+            --border: #30363d;
+            --text-primary: #e6edf3;
+            --text-muted: #7d8590;
+            --accent-blue: #388bfd;
+            --accent-green: #3fb950;
+            --accent-orange: #d29922;
+            --accent-red: #f85149;
+            --accent-purple: #bc8cff;
+            --chart-battery: #f39c12;
+            --chart-height: #2ecc71;
+            --chart-temp: #e74c3c;
+            --chart-accel: #9b59b6;
+        }
+
+        body {
+            background: var(--bg-dark);
+            color: var(--text-primary);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", monospace;
+            font-size: 13px;
+            height: 100vh;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* ── Alert Bar ────────────────────────────────────────────── */
+        #alert-bar {
+            display: none;
+            /* hidden by default */
+            background: var(--accent-red);
+            color: white;
+            text-align: center;
+            padding: 6px 16px;
+            font-weight: bold;
+            font-size: 13px;
+            letter-spacing: 0.5px;
+            flex-shrink: 0;
+        }
+
+        #alert-bar.visible {
+            display: block;
+        }
+
+        /* ── Main Layout ──────────────────────────────────────────── */
+        #main {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+            gap: 8px;
+            padding: 8px;
+        }
+
+        /* ── Left Panel: Video + Controls ────────────────────────── */
+        #left-panel {
+            display: flex;
+            flex-direction: column;
+            flex: 1;
+            gap: 8px;
+            min-width: 0;
+        }
+
+        /* ── Video Feed ───────────────────────────────────────────── */
+        #video-container {
+            background: #000;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            overflow: hidden;
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            min-height: 0;
+        }
+
+        #video-feed {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Recording indicator — red dot in top-right corner of video */
+        #rec-indicator {
+            display: none;
+            position: absolute;
+            top: 10px;
+            right: 12px;
+            background: var(--accent-red);
+            color: white;
+            font-size: 11px;
+            font-weight: bold;
+            padding: 3px 8px;
+            border-radius: 4px;
+            animation: blink 1s infinite;
+        }
+
+        #rec-indicator.visible {
+            display: block;
+        }
+
+        @keyframes blink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0.3;
+            }
+        }
+
+        /* ── Media Controls ───────────────────────────────────────── */
+        #media-controls {
+            display: flex;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+
+        .media-btn {
+            flex: 1;
+            padding: 8px;
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            background: var(--bg-card);
+            color: var(--text-primary);
+            font-size: 12px;
+            cursor: pointer;
+            transition: background 0.15s, border-color 0.15s;
+        }
+
+        .media-btn:hover {
+            background: var(--bg-panel);
+            border-color: var(--accent-blue);
+        }
+
+        .media-btn.active {
+            background: var(--accent-red);
+            border-color: var(--accent-red);
+            color: white;
+        }
+
+        /* ── Status Bar ───────────────────────────────────────────── */
+        #status-bar {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 6px 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            flex-shrink: 0;
+            font-size: 12px;
+            font-family: monospace;
+        }
+
+        .status-item {
+            color: var(--text-muted);
+        }
+
+        .status-item span {
+            color: var(--text-primary);
+            font-weight: bold;
+        }
+
+        /* ── Key Hints ────────────────────────────────────────────── */
+        #key-hints {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 5px 12px;
+            text-align: center;
+            color: var(--text-muted);
+            font-size: 11px;
+            flex-shrink: 0;
+            line-height: 1.8;
+        }
+
+        kbd {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 3px;
+            padding: 1px 5px;
+            font-size: 10px;
+            color: var(--accent-blue);
+            font-family: monospace;
+        }
+
+        /* ── Right Panel: Charts ──────────────────────────────────── */
+        #right-panel {
+            width: 280px;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            overflow-y: auto;
+        }
+
+        .chart-card {
+            background: var(--bg-card);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 8px 10px;
+            flex: 1;
+            min-height: 120px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-title {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            margin-bottom: 4px;
+            flex-shrink: 0;
+        }
+
+        .chart-value {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 4px;
+            flex-shrink: 0;
+        }
+
+        .chart-canvas-wrapper {
+            flex: 1;
+            position: relative;
+            min-height: 60px;
+        }
+
+        /* Last command display */
+        #last-cmd {
+            background: var(--bg-panel);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 5px 12px;
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-muted);
+            flex-shrink: 0;
+        }
+
+        #last-cmd span {
+            color: var(--accent-blue);
+            font-weight: bold;
+        }
+    </style>
+</head>
+
+<body>
+
+    <!-- ── Alert Bar ──────────────────────────────────────────────────── -->
+    <div id="alert-bar"></div>
+
+    <!-- ── Main Layout ───────────────────────────────────────────────── -->
+    <div id="main">
+
+        <!-- ── Left Panel ──────────────────────────────────────────── -->
+        <div id="left-panel">
+
+            <!-- Live Video Feed -->
+            <div id="video-container">
+                <!--
+                src is injected by Flask template engine from MJPEG_HOST:MJPEG_PORT.
+                This works whether server and client are on the same machine or not —
+                the URL changes based on .env without any code changes.
+            -->
+                <img id="video-feed" src="{{ video_url }}" alt="Live Feed">
+                <div id="rec-indicator">● REC</div>
+            </div>
+
+            <!-- Media Controls -->
+            <div id="media-controls">
+                <button class="media-btn" onclick="captureImage()">
+                    📷 Capture Image
+                </button>
+                <button class="media-btn" id="btn-record-start" onclick="startRecording()">
+                    🎥 Start Recording
+                </button>
+                <button class="media-btn" id="btn-record-stop" onclick="stopRecording()" style="display:none">
+                    ⏹ Stop Recording
+                </button>
+            </div>
+
+            <!-- Status Bar -->
+            <div id="status-bar">
+                <div class="status-item">Pitch: <span id="val-pitch">0°</span></div>
+                <div class="status-item">Roll: <span id="val-roll">0°</span></div>
+                <div class="status-item">Yaw: <span id="val-yaw">0°</span></div>
+                <div class="status-item">Battery: <span id="val-battery">--%</span></div>
+                <div class="status-item">Height: <span id="val-height">--cm</span></div>
+                <div class="status-item">ToF: <span id="val-tof">--cm</span></div>
+                <div class="status-item">Vx: <span id="val-vx">--</span></div>
+                <div class="status-item">Vy: <span id="val-vy">--</span></div>
+                <div class="status-item">Vz: <span id="val-vz">--</span></div>
+            </div>
+
+            <!-- Last Command -->
+            <div id="last-cmd">Last command: <span id="val-last-cmd">none</span></div>
+
+            <!-- Key Hints -->
+            <div id="key-hints">
+                <kbd>T</kbd> Takeoff &nbsp;
+                <kbd>L</kbd> Land &nbsp;
+                <kbd>W</kbd> Up &nbsp;
+                <kbd>S</kbd> Down &nbsp;
+                <kbd>A</kbd> CCW &nbsp;
+                <kbd>D</kbd> CW &nbsp;
+                <kbd>↑</kbd> Forward &nbsp;
+                <kbd>↓</kbd> Back &nbsp;
+                <kbd>←</kbd> Left &nbsp;
+                <kbd>→</kbd> Right
+                <br>
+                <kbd>E</kbd><kbd>E</kbd> Emergency Stop &nbsp;&nbsp;
+                <kbd>Q</kbd><kbd>Q</kbd> Quit
+            </div>
+
+        </div>
+
+        <!-- ── Right Panel: Charts ─────────────────────────────────── -->
+        <div id="right-panel">
+
+            <!-- Battery Chart -->
+            <div class="chart-card">
+                <div class="chart-title">Battery</div>
+                <div class="chart-value" id="big-battery" style="color: var(--chart-battery)">--%</div>
+                <div class="chart-canvas-wrapper">
+                    <canvas id="chart-battery"></canvas>
+                </div>
+            </div>
+
+            <!-- Altitude Chart -->
+            <div class="chart-card">
+                <div class="chart-title">Altitude</div>
+                <div class="chart-value" id="big-height" style="color: var(--chart-height)">-- cm</div>
+                <div class="chart-canvas-wrapper">
+                    <canvas id="chart-height"></canvas>
+                </div>
+            </div>
+
+            <!-- Temperature Chart -->
+            <div class="chart-card">
+                <div class="chart-title">Temperature</div>
+                <div class="chart-value" id="big-temp" style="color: var(--chart-temp)">-- °C</div>
+                <div class="chart-canvas-wrapper">
+                    <canvas id="chart-temp"></canvas>
+                </div>
+            </div>
+
+            <!-- Acceleration Chart -->
+            <div class="chart-card">
+                <div class="chart-title">Acceleration</div>
+                <div class="chart-value" id="big-accel" style="color: var(--chart-accel)">-- cm/s²</div>
+                <div class="chart-canvas-wrapper">
+                    <canvas id="chart-accel"></canvas>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // ─────────────────────────────────────────────
+        // CHART SETUP
+        // ─────────────────────────────────────────────
+
+        /*
+         * Chart.js configuration.
+         * Each chart is a line chart with:
+         *   - No point dots (too noisy for live data)
+         *   - Transparent fill under the line
+         *   - Fixed x-axis (100 samples, index 0-99)
+         *   - Auto-scaling y-axis (except battery which is fixed 0-100)
+         *   - Dark theme matching the CSS variables
+         */
+
+        const CHART_DEFAULTS = {
+            type: "line",
+            options: {
+                animation: false,        // no animation — we update too fast
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false }  // no legend — title is above chart
+                },
+                scales: {
+                    x: {
+                        display: false   // hide x-axis labels (just sample index)
+                    },
+                    y: {
+                        grid: { color: "rgba(48,54,61,0.8)" },
+                        ticks: { color: "#7d8590", font: { size: 9 } }
+                    }
+                },
+                elements: {
+                    point: { radius: 0 },        // no dots
+                    line: { borderWidth: 1.5 }
+                }
+            }
+        };
+
+        function makeChart(canvasId, color, yMin, yMax) {
+            /*
+             * Factory function — creates a Chart.js line chart on the given canvas.
+             * color: CSS color string for the line.
+             * yMin/yMax: if provided, fix the y-axis range (used for battery 0-100).
+             *            if null, Chart.js auto-scales.
+             */
+            const ctx = document.getElementById(canvasId).getContext("2d");
+
+            const opts = JSON.parse(JSON.stringify(CHART_DEFAULTS));   // deep copy
+
+            // Set y-axis range if specified
+            if (yMin !== null) opts.options.scales.y.min = yMin;
+            if (yMax !== null) opts.options.scales.y.max = yMax;
+
+            // Alert threshold line for battery (20%) and altitude (200cm)
+            // Added as a plugin annotation — drawn as a horizontal dashed red line.
+            // We implement this manually as a dataset instead of using the annotation plugin
+            // (avoids an extra CDN dependency).
+
+            return new Chart(ctx, {
+                ...opts,
+                data: {
+                    labels: Array(100).fill(""),   // 100 empty x-labels
+                    datasets: [{
+                        data: Array(100).fill(null),
+                        borderColor: color,
+                        backgroundColor: color + "18",  // very transparent fill
+                        fill: true,
+                        tension: 0.3
+                    }]
+                }
+            });
+        }
+
+        // Create all 4 charts
+        const charts = {
+            battery: makeChart("chart-battery", "#f39c12", 0, 100),
+            height: makeChart("chart-height", "#2ecc71", null, null),
+            temp: makeChart("chart-temp", "#e74c3c", null, null),
+            accel: makeChart("chart-accel", "#9b59b6", null, null)
+        };
+
+        function updateChart(chart, historyArray) {
+            /*
+             * Replace the chart's data with a new array.
+             * Pads with null on the left if fewer than 100 samples.
+             * chart.update("none") skips animation — critical for smooth live updates.
+             */
+            const padded = Array(100).fill(null);
+            const start = Math.max(0, 100 - historyArray.length);
+            historyArray.forEach((v, i) => { padded[start + i] = v; });
+            chart.data.datasets[0].data = padded;
+            chart.update("none");
+        }
+
+
+        // ─────────────────────────────────────────────
+        // SERVER-SENT EVENTS — LIVE TELEMETRY
+        // ─────────────────────────────────────────────
+
+        /*
+         * EventSource opens a persistent HTTP connection to /telemetry_stream.
+         * Every 500ms Flask sends a JSON event. We parse it and update the UI.
+         * If the connection drops, EventSource automatically reconnects.
+         */
+        const evtSource = new EventSource("/telemetry_stream");
+
+        evtSource.onmessage = function (event) {
+            const d = JSON.parse(event.data);
+
+            // ── Update status bar ──────────────────────────────────────
+            document.getElementById("val-pitch").textContent = d.pitch.toFixed(1) + "°";
+            document.getElementById("val-roll").textContent = d.roll.toFixed(1) + "°";
+            document.getElementById("val-yaw").textContent = d.yaw.toFixed(1) + "°";
+            document.getElementById("val-battery").textContent = d.battery.toFixed(0) + "%";
+            document.getElementById("val-height").textContent = d.height.toFixed(0) + "cm";
+            document.getElementById("val-tof").textContent = d.tof.toFixed(0) + "cm";
+            document.getElementById("val-vx").textContent = d.vgx.toFixed(0);
+            document.getElementById("val-vy").textContent = d.vgy.toFixed(0);
+            document.getElementById("val-vz").textContent = d.vgz.toFixed(0);
+
+            // ── Update big value displays above charts ─────────────────
+            document.getElementById("big-battery").textContent = d.battery.toFixed(0) + "%";
+            document.getElementById("big-height").textContent = d.height.toFixed(0) + " cm";
+            document.getElementById("big-temp").textContent = d.temph.toFixed(1) + " °C";
+
+            // Acceleration magnitude from latest accel history entry
+            if (d.accel_history && d.accel_history.length > 0) {
+                const latest = d.accel_history[d.accel_history.length - 1];
+                document.getElementById("big-accel").textContent = latest.toFixed(2) + " cm/s²";
+            }
+
+            // ── Update charts ──────────────────────────────────────────
+            if (d.battery_history) updateChart(charts.battery, d.battery_history);
+            if (d.height_history) updateChart(charts.height, d.height_history);
+            if (d.temp_history) updateChart(charts.temp, d.temp_history);
+            if (d.accel_history) updateChart(charts.accel, d.accel_history);
+
+            // ── Alert bar ──────────────────────────────────────────────
+            const alertBar = document.getElementById("alert-bar");
+            if (d.alerts && d.alerts.length > 0) {
+                alertBar.textContent = d.alerts[d.alerts.length - 1];
+                alertBar.classList.add("visible");
+            } else {
+                alertBar.textContent = "";
+                alertBar.classList.remove("visible");
+            }
+        };
+
+        evtSource.onerror = function () {
+            console.warn("SSE connection lost — will auto-reconnect.");
+        };
+
+
+        // ─────────────────────────────────────────────
+        // FLIGHT COMMANDS
+        // ─────────────────────────────────────────────
+
+        /*
+         * sendCommand posts to Flask /command endpoint.
+         * Flask forwards to the CoAP client which sends to the CoAP server → drone.
+         * We update the "last command" display immediately for responsiveness.
+         */
+
+        async function sendCommand(payload) {
+            document.getElementById("val-last-cmd").textContent = payload.action +
+                (payload.direction ? ` ${payload.direction} ${payload.distance}` : "");
+            try {
+                const resp = await fetch("/command", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify(payload)
+                });
+                const data = await resp.json();
+                if (data.status !== "ok") {
+                    console.warn("Command error:", data);
+                }
+            } catch (e) {
+                console.error("Command fetch failed:", e);
+            }
+        }
+
+        // ── Keyboard Controls ──────────────────────────────────────────────
+
+        /*
+         * Keyboard handler — same logic as matplotlib version.
+         * emergency and quit require double-press.
+         * Arrow keys and WASD for movement/altitude/rotation.
+         */
+        let emergencyPrimed = false;
+        let quitPrimed = false;
+
+        document.addEventListener("keydown", function (e) {
+            // Prevent browser defaults for arrow keys (page scroll)
+            if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+                e.preventDefault();
+            }
+
+            switch (e.key) {
+
+                case "t": case "T":
+                    sendCommand({ action: "takeoff" });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "l": case "L":
+                    sendCommand({ action: "land" });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "w": case "W":
+                    sendCommand({ action: "move", direction: "up", distance: 30 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "s": case "S":
+                    sendCommand({ action: "move", direction: "down", distance: 30 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "a": case "A":
+                    sendCommand({ action: "move", direction: "ccw", distance: 20 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "d": case "D":
+                    sendCommand({ action: "move", direction: "cw", distance: 20 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "ArrowUp":
+                    sendCommand({ action: "move", direction: "forward", distance: 50 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "ArrowDown":
+                    sendCommand({ action: "move", direction: "back", distance: 50 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "ArrowLeft":
+                    sendCommand({ action: "move", direction: "left", distance: 50 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "ArrowRight":
+                    sendCommand({ action: "move", direction: "right", distance: 50 });
+                    emergencyPrimed = false; quitPrimed = false;
+                    break;
+
+                case "e": case "E":
+                    if (emergencyPrimed) {
+                        sendCommand({ action: "emergency" });
+                        document.getElementById("val-last-cmd").textContent = "⚠ EMERGENCY STOP";
+                        emergencyPrimed = false;
+                    } else {
+                        emergencyPrimed = true;
+                        document.getElementById("val-last-cmd").textContent = "Press E again to confirm EMERGENCY";
+                    }
+                    quitPrimed = false;
+                    break;
+
+                case "q": case "Q":
+                    if (quitPrimed) {
+                        // Land then close tab after 3 seconds
+                        sendCommand({ action: "land" });
+                        document.getElementById("val-last-cmd").textContent = "Landing... closing in 3s";
+                        setTimeout(() => window.close(), 3000);
+                        quitPrimed = false;
+                    } else {
+                        quitPrimed = true;
+                        document.getElementById("val-last-cmd").textContent = "Press Q again to quit";
+                    }
+                    emergencyPrimed = false;
+                    break;
+
+                default:
+                    // Any other key cancels primed states
+                    emergencyPrimed = false;
+                    quitPrimed = false;
+            }
+        });
+
+
+        // ─────────────────────────────────────────────
+        // MEDIA CONTROLS
+        // ─────────────────────────────────────────────
+
+        async function captureImage() {
+            try {
+                const resp = await fetch("/capture");
+                const data = await resp.json();
+                if (data.status === "ok") {
+                    document.getElementById("val-last-cmd").textContent =
+                        "📷 Captured: " + data.filename;
+                } else {
+                    alert("Capture failed: " + data.reason);
+                }
+            } catch (e) {
+                alert("Capture error: " + e);
+            }
+        }
+
+        async function startRecording() {
+            try {
+                const resp = await fetch("/record/start");
+                const data = await resp.json();
+                if (data.status === "ok") {
+                    document.getElementById("btn-record-start").style.display = "none";
+                    document.getElementById("btn-record-stop").style.display = "flex";
+                    document.getElementById("rec-indicator").classList.add("visible");
+                    document.getElementById("val-last-cmd").textContent =
+                        "🎥 Recording: " + data.filename;
+                } else {
+                    alert("Record start failed: " + data.reason);
+                }
+            } catch (e) {
+                alert("Record error: " + e);
+            }
+        }
+
+        async function stopRecording() {
+            try {
+                const resp = await fetch("/record/stop");
+                const data = await resp.json();
+                if (data.status === "ok") {
+                    document.getElementById("btn-record-start").style.display = "flex";
+                    document.getElementById("btn-record-stop").style.display = "none";
+                    document.getElementById("rec-indicator").classList.remove("visible");
+                    document.getElementById("val-last-cmd").textContent = "⏹ Recording saved";
+                } else {
+                    alert("Record stop failed: " + data.reason);
+                }
+            } catch (e) {
+                alert("Stop record error: " + e);
+            }
+        }
+    </script>
+</body>
+
+</html>
