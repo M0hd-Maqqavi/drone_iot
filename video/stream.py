@@ -86,6 +86,7 @@ def _capture_loop():
 
     while True:
         logger.info("Opening Tello video stream at %s", stream_url)
+        os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "quiet"  # suppress FFmpeg noise
         cap = cv2.VideoCapture(stream_url, cv2.CAP_FFMPEG)
 
         if not cap.isOpened():

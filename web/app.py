@@ -39,6 +39,7 @@ import time
 import asyncio
 import logging
 import threading
+import os
 
 from flask import Flask, Response, render_template, request, jsonify
 
@@ -47,7 +48,10 @@ from coap.client import client_state
 
 logger = logging.getLogger(__name__)
 
-app = Flask(__name__)
+app = Flask(
+    __name__,
+    template_folder=os.path.join(os.path.dirname(__file__), "templates")
+)
 
 # Reference to the asyncio event loop running the CoAP client.
 # Set by main.py after the async thread starts.
