@@ -157,7 +157,7 @@ class TelloBridge:
         try:
             self.cmd_socket.settimeout(5.0)
             response, _ = self.cmd_socket.recvfrom(1024)
-            return response.decode().strip()
+            return response.decode("latin-1").strip()
         except socket.timeout:
             return "timeout"
 
