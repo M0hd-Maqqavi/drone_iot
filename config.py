@@ -123,3 +123,7 @@ ALTITUDE_ALERT_THRESHOLD = 200  # cm
 # 500ms = 2 refreshes per second — fast enough to feel live,
 # light enough not to saturate the CPU on the client machine.
 DASHBOARD_UPDATE_INTERVAL = 500  # milliseconds
+
+# If pitch or roll exceeds this while on the ground, a tilt warning fires.
+# 10° is enough to indicate a genuinely unsafe takeoff surface.
+TILT_ALERT_THRESHOLD = 10  # degrees

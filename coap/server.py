@@ -45,7 +45,7 @@ import aiocoap.resource as resource
 from aiocoap.numbers.contentformat import ContentFormat
 
 from auth.handshake import AuthServer
-from config import COAP_HOST, COAP_PORT, BATTERY_ALERT_THRESHOLD, ALTITUDE_ALERT_THRESHOLD
+from config import COAP_HOST, COAP_PORT, BATTERY_ALERT_THRESHOLD, ALTITUDE_ALERT_THRESHOLD, TILT_ALERT_THRESHOLD
 import shared.state as state
 
 logger = logging.getLogger(__name__)
@@ -416,11 +416,27 @@ class OrientationResource(TelemetryResource):
 
     def _get_value(self) -> dict:
         snap = state.snapshot()
+    
+        # Tilt warning: only relevant when on the ground (height == 0)
+        # pitch/roll beyond threshold = unsafe takeoff surface
+        on_ground = snap["height"] == 0 and snap["connected"]
+        tilt_alert = on_ground and (
+            abs(snap["pitch"]) > TILT_ALERT_THRESHOLD or
+            abs(snap["roll"])  > TILT_ALERT_THRESHOLD
+        )
+    
+        if tilt_alert:
+            logger.warning(
+                "ALERT: Drone not level — pitch:%.1f° roll:%.1f°",
+                snap["pitch"], snap["roll"]
+            )
+    
         return {
             "pitch": snap["pitch"],
             "roll":  snap["roll"],
             "yaw":   snap["yaw"],
-            "unit":  "degrees"
+            "unit":  "degrees",
+            "tilt_alert": tilt_alert
         }
 
 

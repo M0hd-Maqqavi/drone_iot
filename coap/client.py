@@ -122,6 +122,16 @@ class ClientState:
             self.pitch = data.get("pitch", self.pitch)
             self.roll  = data.get("roll",  self.roll)
             self.yaw   = data.get("yaw",   self.yaw)
+            
+            if data.get("tilt_alert"):
+                alert_msg = f"⚠ DRONE NOT LEVEL — P:{self.pitch:+.1f}° R:{self.roll:+.1f}° — Place on flat surface before takeoff"
+                # Replace any existing tilt alert rather than stacking duplicates
+                self.alerts = [a for a in self.alerts if "NOT LEVEL" not in a]
+                self.alerts.append(alert_msg)
+                logger.warning(alert_msg)
+            else:
+                # Clear tilt alert when drone is level again
+                self.alerts = [a for a in self.alerts if "NOT LEVEL" not in a]
 
     def update_velocity(self, data: dict):
         with self._lock:
