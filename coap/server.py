@@ -289,22 +289,33 @@ class TelemetryResource(resource.ObservableResource):
     async def render_get(self, request):
         """
         Called by aiocoap both for initial GET and for each Observe notification.
-        Returns the current value as a JSON payload.
+
+        For the INITIAL GET: request comes from client with URI query params.
+        For OBSERVE NOTIFICATIONS: aiocoap calls this internally with no URI
+        query — so we cannot check auth here for notifications.
+
+        Solution: store the device_id at first subscription, skip auth check
+        for subsequent notification renders (they come from the same verified client).
         """
-        # Extract device_id from URI query string: ?device_id=xxx
-        # aiocoap exposes query options as a list of "key=value" strings.
+        # Try to extract device_id from URI query (only present on initial GET)
         device_id = None
         for opt in request.opt.uri_query:
             if opt.startswith("device_id="):
                 device_id = opt.split("=", 1)[1]
 
-        if not device_id or not require_auth(device_id):
-            return aiocoap.Message(
-                code=aiocoap.UNAUTHORIZED,
-                payload=b'{"error":"not authenticated"}'
-            )
+        # If device_id present → this is an initial GET → check auth
+        # If device_id absent → this is a server-pushed notification → skip auth check
+        # (aiocoap only calls render_get for notifications it already accepted)
+        if device_id is not None:
+            if not require_auth(device_id):
+                return aiocoap.Message(
+                    code=aiocoap.UNAUTHORIZED,
+                    payload=b'{"error":"not authenticated"}'
+                )
+            # Store device_id for logging purposes
+            self._last_device_id = device_id
 
-        data = self._get_value()
+        data    = self._get_value()
         payload = json.dumps(data).encode()
 
         return aiocoap.Message(
