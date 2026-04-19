@@ -220,6 +220,9 @@ class DroneCoAPClient:
 
     async def stop(self):
         """Cleanly shut down the aiocoap context."""
+        if hasattr(self, "_observe_tasks"):
+            for task in self._observe_tasks:
+                task.cancel()
         if self.context:
             await self.context.shutdown()
             logger.info("CoAP client shut down.")
@@ -338,6 +341,8 @@ class DroneCoAPClient:
             async for notification in request.observation:
                 process(notification.payload)
         """
+        self._observe_tasks = []
+        
         resources = [
             ("battery",      client_state.update_battery),
             ("height",       client_state.update_height),
@@ -345,12 +350,16 @@ class DroneCoAPClient:
             ("orientation",  client_state.update_orientation),
             ("velocity",     client_state.update_velocity),
             ("acceleration", client_state.update_acceleration),
-            ("tof",          lambda d: None),  # tof included in height update
+            ("tof",          lambda d: None),
         ]
 
         for name, update_fn in resources:
             uri = f"{self.base_uri}/drone/telemetry/{name}?{self._qstring}"
-            asyncio.create_task(self._observe_resource(uri, name, update_fn))
+            # Store reference — prevents garbage collection
+            task = asyncio.create_task(
+                self._observe_resource(uri, name, update_fn)
+            )
+            self._observe_tasks.append(task)
             logger.info("Subscribed to: %s", uri)
 
     async def _observe_resource(self, uri: str, name: str, update_fn):
