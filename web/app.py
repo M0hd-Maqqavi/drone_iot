@@ -223,7 +223,21 @@ def record_stop():
         return jsonify(r.json())
     except Exception as e:
         return jsonify({"status": "error", "reason": str(e)}), 500
-
+    
+@app.route("/shutdown", methods=["POST"])
+def shutdown():
+    """
+    Called by browser QQ — shuts down the entire Python process cleanly.
+    os.kill sends SIGTERM to the current process which triggers main.py's
+    finally block (bridge.disconnect(), loop.stop()).
+    """
+    import os
+    import signal
+    logger.info("Shutdown requested from browser.")
+    # Schedule the kill slightly after returning the response
+    # so the browser receives the HTTP 200 before the process dies
+    threading.Timer(0.5, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
+    return jsonify({"status": "ok"})
 
 # ─────────────────────────────────────────────
 # PUBLIC API

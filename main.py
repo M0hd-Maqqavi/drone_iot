@@ -28,6 +28,7 @@ import sys
 import threading
 import time
 import webbrowser
+import signal
 
 from tello.drone   import TelloBridge
 from coap.server   import create_server
@@ -160,6 +161,11 @@ def main():
     webbrowser.open(url)
 
     # ── Step 7: Keep main thread alive ────────────────────────────
+    # Allow browser QQ to shut down the process cleanly.
+    # When /shutdown is called, Flask sends SIGTERM to this process.
+    # This handler converts SIGTERM into a KeyboardInterrupt so the
+    # existing finally block handles cleanup exactly like Ctrl+C does.
+    signal.signal(signal.SIGTERM, lambda signum, frame: (_ for _ in ()).throw(KeyboardInterrupt()))
     logger.info("System running. Press Ctrl+C to shut down.")
     try:
         while True:

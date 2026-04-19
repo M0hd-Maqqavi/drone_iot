@@ -649,10 +649,14 @@
 
                 case "q": case "Q":
                     if (quitPrimed) {
-                        // Land then close tab after 3 seconds
+                        // Land drone first, then tell server to shut down
                         sendCommand({ action: "land" });
-                        document.getElementById("val-last-cmd").textContent = "Landing... closing in 3s";
-                        setTimeout(() => window.close(), 3000);
+                        document.getElementById("val-last-cmd").textContent = "Landing... shutting down in 3s";
+                        // Wait 3 seconds for drone to land, then call shutdown endpoint
+                        setTimeout(async () => {
+                            await fetch("/shutdown", { method: "POST" });
+                            window.close();
+                        }, 3000);
                         quitPrimed = false;
                     } else {
                         quitPrimed = true;
