@@ -170,7 +170,7 @@ drone_iot/
 
 **`config.py`** — Single source of truth for all configuration. Every port, threshold, and secret is defined here. All values can be overridden via `.env` — no code changes needed to switch between one-machine and two-machine deployments.
 
-**`auth/handshake.py`** — Implements the 4-step mutual authentication scheme from the Week 8 lecture. `AuthServer` handles the server side; `AuthClient` handles the client side. Uses AES-128-CBC encryption and XOR-based session key hiding (`ψ = λi ⊕ μkey`).
+**`auth/handshake.py`** — Implements the 4-step mutual authentication scheme. `AuthServer` handles the server side; `AuthClient` handles the client side. Uses AES-128-CBC encryption and XOR-based session key hiding (`ψ = λi ⊕ μkey`).
 
 **`tello/drone.py`** — The only file that speaks Tello SDK. Manages two UDP sockets: one for sending commands (port 8889), one for receiving telemetry broadcasts (port 8890). Higher-level methods: `takeoff()`, `land()`, `emergency()`, `move()`, `rotate()`.
 
@@ -316,7 +316,7 @@ Press `Q` twice on the dashboard — the drone lands automatically and the entir
 
 ## 8. Running on Two Separate Machines (USB Ethernet — macOS)
 
-This setup uses a Mac as the **server/gateway** (connected to the drone) and a Windows laptop as the **client** (running the dashboard browser). A USB Ethernet adapter creates a direct wired LAN between the two machines — this avoids the Wi-Fi conflict where the Mac would need to be on both the Tello Wi-Fi and the home network simultaneously.
+This setup uses a Mac as the **server/gateway** (connected to the drone) and another laptop as the **client** (running the dashboard browser). A USB Ethernet adapter creates a direct wired LAN between the two machines — this avoids the Wi-Fi conflict where the Mac would need to be on both the Tello Wi-Fi and the home network simultaneously.
 
 ### The networking problem
 
@@ -339,7 +339,7 @@ The Mac must connect to the Tello's Wi-Fi to control the drone. But the client m
 
 **Step 1** — Connect Mac to Tello Wi-Fi (as usual).
 
-**Step 2** — Connect Mac to Windows via Ethernet cable through the USB adapter.
+**Step 2** — Connect Mac to another machine via Ethernet cable through the USB adapter.
 
 **Step 3** — Find the Mac's IP address on the Ethernet interface:
 
@@ -374,7 +374,7 @@ The browser will open on the Mac too — you can ignore it or close it.
 
 ---
 
-### Client setup (Windows)
+### Client setup (the other machine, e.g. Windows)
 
 **Step 1** — Install Python 3.12 from python.org. During install, check "Add Python to PATH".
 
