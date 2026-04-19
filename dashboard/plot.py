@@ -222,6 +222,28 @@ class Dashboard:
         # figsize=(12, 7): wide enough for 2 columns, tall enough for info bars.
         # facecolor matches a dark terminal aesthetic — easier on the eyes.
         self.fig = plt.figure(figsize=(12, 7), facecolor="#1a1a2e")
+        
+        # Disable matplotlib's built-in key shortcuts that conflict with drone controls
+        conflicting_keys = [
+            "keymap.fullscreen",   # f
+            "keymap.save",         # s
+            "keymap.quit",         # q
+            "keymap.quit_all",     # Q
+            "keymap.xscale",       # l/L — log scale toggle
+            "keymap.autoscale",    # a
+            "keymap.forward",      # d
+            "keymap.back",         # c/left
+            "keymap.home",         # h/r/home
+            "keymap.pan",          # p — pan mode (then arrows pan)
+            "keymap.zoom"          # o — zoom mode
+        ]
+        
+        for key in conflicting_keys:
+            try:
+                plt.rcParams[key] = []   # empty list = no binding
+            except KeyError:
+                pass
+        
         self.fig.canvas.manager.set_window_title("Drone IoT Monitor")
 
         # GridSpec: 4 rows × 2 cols
