@@ -234,7 +234,7 @@ class DroneCoAPClient:
                 task.cancel()
         if self.context:
             await self.context.shutdown()
-            logger.info("CoAP client shut down.")
+        logger.info("CoAP client shut down.")
 
     # ── AUTH HANDSHAKE ───────────────────────────────────────────────
 
