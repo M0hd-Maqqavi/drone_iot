@@ -22,3 +22,7 @@ DRONE-IOT/
 
 # Logs of Flight operations
 flight_log.txt
+
+# Media files
+captures/
+recordings/
