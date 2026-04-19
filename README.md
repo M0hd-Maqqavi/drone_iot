@@ -21,12 +21,12 @@
 
 ## 1. Project Overview
 
-**Drone IoT Monitor** is a hardware-based IoT project built for the *Introduction to IoT Systems* course (1501452) at the University of Sharjah. It reimplements drone communication and monitoring as a proper IoT system using the **CoAP protocol**, **AES-128 mutual authentication**, and a **live web dashboard**.
+**Drone IoT Monitor** is a hardware-based IoT project. It reimplements drone communication and monitoring as a proper IoT system using the **CoAP protocol**, **AES-128 mutual authentication**, and a **live web dashboard**.
 
 The system uses a **DJI Tello (TLW004)** drone as the IoT sensor node. The drone collects telemetry data (orientation, altitude, temperature, acceleration, battery, velocity) and streams live video. A gateway layer translates this into CoAP resources, and an authenticated client consumes them via a web dashboard.
 
 **Key features:**
-- 4-step AES-128 mutual authentication handshake (based on Week 8 lecture material)
+- 4-step AES-128 mutual authentication handshake between client and server
 - 7 observable CoAP telemetry resources with push notifications (Observe option)
 - Bidirectional flight commands over CoAP (takeoff, land, move, rotate, emergency)
 - Live MJPEG video feed served over HTTP
@@ -61,24 +61,24 @@ The Tello's firmware is proprietary and fixed — it only speaks Tello SDK over 
 ```
 ┌──────────────────────────────────────────────────────────────────────┐
 │                        APPLICATION LAYER                             │
-│   coap/client.py + web/app.py + web/templates/index.html            │
-│   - CoAP Observe subscriptions (7 resources)                        │
-│   - Web dashboard (SSE telemetry, Chart.js, keyboard controls)      │
-│   - Sends commands: browser → Flask → CoAP → server → drone         │
+│   coap/client.py + web/app.py + web/templates/index.html             │
+│   - CoAP Observe subscriptions (7 resources)                         │
+│   - Web dashboard (SSE telemetry, Chart.js, keyboard controls)       │
+│   - Sends commands: browser → Flask → CoAP → server → drone          │
 └───────────────────────────┬──────────────────────────────────────────┘
                             │ CoAP over UDP (port 5683)
                             │ 4-step AES-128 mutual auth
                             │ HTTP/MJPEG video (port 8080)
 ┌───────────────────────────┴──────────────────────────────────────────┐
 │                        GATEWAY LAYER                                 │
-│   coap/server.py + tello/drone.py + shared/state.py                 │
-│   - Receives Tello SDK telemetry (UDP port 8890)                    │
-│   - Exposes 7 CoAP resources (battery, height, temperature,         │
-│     orientation, velocity, acceleration, tof)                       │
-│   - Enforces authentication on all resource access                  │
-│   - Forwards SDK commands to drone (UDP port 8889)                  │
-│   video/stream.py                                                   │
-│   - Decodes H.264 video (UDP port 11111) → MJPEG (HTTP port 8080)  │
+│   coap/server.py + tello/drone.py + shared/state.py                  │
+│   - Receives Tello SDK telemetry (UDP port 8890)                     │
+│   - Exposes 7 CoAP resources (battery, height, temperature,          │
+│     orientation, velocity, acceleration, tof)                        │
+│   - Enforces authentication on all resource access                   │
+│   - Forwards SDK commands to drone (UDP port 8889)                   │
+│   video/stream.py                                                    │
+│   - Decodes H.264 video (UDP port 11111) → MJPEG (HTTP port 8080)    │
 └───────────────────────────┬──────────────────────────────────────────┘
                             │ Tello SDK over UDP
                             │ Port 8889: commands (gateway → drone)
@@ -87,33 +87,33 @@ The Tello's firmware is proprietary and fixed — it only speaks Tello SDK over 
 ┌───────────────────────────┴──────────────────────────────────────────┐
 │                        DEVICE LAYER                                  │
 │   DJI Tello TLW004                                                   │
-│   - IMU: pitch, roll, yaw, acceleration (agx, agy, agz)            │
-│   - Barometric altimeter: height, baro                              │
-│   - Time-of-Flight sensor: tof                                      │
-│   - Thermometer: templ, temph                                       │
-│   - Battery monitor: bat                                            │
-│   - Camera: H.264 video stream                                      │
+│   - IMU: pitch, roll, yaw, acceleration (agx, agy, agz)              │
+│   - Barometric altimeter: height, baro                               │
+│   - Time-of-Flight sensor: tof                                       │
+│   - Thermometer: templ, temph                                        │
+│   - Battery monitor: bat                                             │
+│   - Camera: H.264 video stream                                       │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-### Authentication Flow (Week 8 lecture — AES-128 mutual auth)
+### Authentication Flow
 
 ```
 CLIENT                                        SERVER
   │                                              │
   │── POST /auth/init  (Device ID) ─────────────►│  Step 1: Session initiation
-  │◄── 2.01 Created ────────────────────────────│
+  │◄── 2.01 Created ─────────────────────────────│
   │                                              │
-  │── GET /auth/challenge ───────────────────────►│  Step 2: Server sends AES{λi,(ψ|ηserver)}
+  │── GET /auth/challenge ──────────────────────►│  Step 2: Server sends AES{λi,(ψ|ηserver)}
   │◄── 2.05 Content (encrypted challenge) ───────│
   │                                              │
-  │── POST /auth/verify (client response) ───────►│  Step 3: Client proves identity
-  │◄── 2.04 Changed ────────────────────────────│
+  │── POST /auth/verify (client response) ──────►│  Step 3: Client proves identity
+  │◄── 2.04 Changed ─────────────────────────────│
   │                                              │
-  │── GET /auth/confirm ─────────────────────────►│  Step 4: Server proves identity
+  │── GET /auth/confirm ────────────────────────►│  Step 4: Server proves identity
   │◄── 2.05 Content (server proof) ──────────────│
   │                                              │
-  │  ✅ μkey shared — all subsequent data        │
+  │    μkey shared — all subsequent data         |
   │     encrypted with AES{μkey, data}           │
 ```
 
